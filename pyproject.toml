@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "semker-python"
+version = "0.1.0"
+description = "Semantic Kernel + Qdrant RAG — dinosaur knowledge base learning project"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+
+dependencies = [
+    "semantic-kernel>=1.39.0",
+    "qdrant-client>=1.17.0",
+    "pandas>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "openai>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff==0.15.2",
+]
+
+[project.scripts]
+semker-python = "semker_python.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+semker_python = ["data/*.csv"]
+
+[tool.ruff]
+line-length = 100
+indent-width = 2
+target-version = "py311"
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "double"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+]
