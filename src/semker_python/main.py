@@ -5,11 +5,12 @@ import os
 import sys
 
 from dotenv import load_dotenv
+from semantic_kernel import Kernel
 from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion, AzureTextEmbedding
 
 from semker_python.ingestion.loader import load_dinosaurs
-from semker_python.rag.answer import generate_answer
-from semker_python.rag.search import build_context_string, retrieve_context
+from semker_python.rag.answer import answer_function
+from semker_python.rag.search import SearchPlugin
 from semker_python.vectordb.qdrant_store import QdrantStore
 
 load_dotenv()
@@ -28,17 +29,29 @@ def _check_env() -> None:
     sys.exit(1)
 
 
-async def ingest() -> QdrantStore:
+def build_kernel() -> tuple[Kernel, AzureTextEmbedding]:
+  """Create a kernel with Azure OpenAI chat and embedding services."""
   _check_env()
-
-  print("Loading dataset...")
-  records = load_dinosaurs()
-
   embedding_svc = AzureTextEmbedding(
     deployment_name=EMBEDDING_DEPLOYMENT,
     endpoint=AZURE_OPENAI_ENDPOINT,
     api_key=AZURE_OPENAI_API_KEY,
   )
+  kernel = Kernel()
+  kernel.add_service(
+    AzureChatCompletion(
+      deployment_name=CHAT_DEPLOYMENT,
+      endpoint=AZURE_OPENAI_ENDPOINT,
+      api_key=AZURE_OPENAI_API_KEY,
+    )
+  )
+  kernel.add_service(embedding_svc)
+  return kernel, embedding_svc
+
+
+async def ingest(embedding_svc: AzureTextEmbedding) -> QdrantStore:
+  print("Loading dataset...")
+  records = load_dinosaurs()
 
   descriptions = [r["description"] for r in records]
   all_embeddings: list[list[float]] = []
@@ -54,40 +67,32 @@ async def ingest() -> QdrantStore:
   return store
 
 
-async def ask(question: str, store: QdrantStore | None = None) -> None:
-  _check_env()
+async def ask(question: str, kernel: Kernel | None = None) -> None:
+  if kernel is None:
+    kernel, embedding_svc = build_kernel()
+    store = await ingest(embedding_svc)
+    plugin = SearchPlugin(store, embedding_svc)
+    kernel.add_plugin(plugin, plugin_name="search")
 
-  embedding_svc = AzureTextEmbedding(
-    deployment_name=EMBEDDING_DEPLOYMENT,
-    endpoint=AZURE_OPENAI_ENDPOINT,
-    api_key=AZURE_OPENAI_API_KEY,
+  search_fn = kernel.plugins["search"]["retrieve"]
+  context_result = await kernel.invoke(search_fn, query=question)
+
+  result = await kernel.invoke(
+    answer_function, retrieved_context=str(context_result), user_question=question
   )
-  chat_svc = AzureChatCompletion(
-    deployment_name=CHAT_DEPLOYMENT,
-    endpoint=AZURE_OPENAI_ENDPOINT,
-    api_key=AZURE_OPENAI_API_KEY,
-  )
 
-  if store is None:
-    store = await ingest()
-
-  hits = await retrieve_context(query=question, embedding_service=embedding_svc, store=store)
-  context_str = build_context_string(hits)
-
-  answer = await generate_answer(
-    user_question=question,
-    retrieved_context=context_str,
-    chat_service=chat_svc,
-  )
   print(f"\n{question}\n{'─' * len(question)}")
-  print(answer)
+  print(result)
   print()
 
 
 async def interactive() -> None:
-  store = await ingest()
-  print("Type a question, or 'quit' to exit.\n")
+  kernel, embedding_svc = build_kernel()
+  store = await ingest(embedding_svc)
+  plugin = SearchPlugin(store, embedding_svc)
+  kernel.add_plugin(plugin, plugin_name="search")
 
+  print("Type a question, or 'quit' to exit.\n")
   while True:
     try:
       question = input("Ask > ").strip()
@@ -96,7 +101,7 @@ async def interactive() -> None:
       break
     if not question or question.lower() in ("quit", "exit", "q"):
       break
-    await ask(question, store=store)
+    await ask(question, kernel=kernel)
 
 
 def main() -> None:
@@ -107,7 +112,8 @@ def main() -> None:
   command = sys.argv[1].lower()
 
   if command == "ingest":
-    asyncio.run(ingest())
+    _kernel, embedding_svc = build_kernel()
+    asyncio.run(ingest(embedding_svc))
   elif command == "ask":
     if len(sys.argv) < 3:
       print('usage: semker-python ask "your question"')

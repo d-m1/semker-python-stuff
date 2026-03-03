@@ -1,34 +1,15 @@
 from __future__ import annotations
 
-from semantic_kernel.connectors.ai.open_ai import (
-  AzureChatCompletion,
-  AzureChatPromptExecutionSettings,
+from semantic_kernel.connectors.ai.open_ai import AzureChatPromptExecutionSettings
+from semantic_kernel.functions import KernelFunction
+
+from semker_python.rag.prompts import RAG_PROMPT
+
+# SK renders the template variables and routes to the chat service automatically.
+answer_function = KernelFunction.from_prompt(
+  function_name="answer",
+  plugin_name="rag",
+  description="Answer dinosaur questions using retrieved context",
+  prompt=RAG_PROMPT,
+  prompt_execution_settings=AzureChatPromptExecutionSettings(temperature=0.0),
 )
-from semantic_kernel.contents.chat_history import ChatHistory
-
-from semker_python.rag.prompts import RAG_SYSTEM_PROMPT
-
-
-async def generate_answer(
-  user_question: str,
-  retrieved_context: str,
-  chat_service: AzureChatCompletion,
-) -> str:
-  system_message = RAG_SYSTEM_PROMPT.replace("{{$retrieved_context}}", retrieved_context).replace(
-    "{{$user_question}}", user_question
-  )
-
-  history = ChatHistory()
-  history.add_system_message(system_message)
-  history.add_user_message(user_question)
-
-  settings = AzureChatPromptExecutionSettings(
-    temperature=0.0,
-  )
-
-  response = await chat_service.get_chat_message_content(
-    chat_history=history,
-    settings=settings,
-  )
-
-  return str(response)

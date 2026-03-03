@@ -3,22 +3,29 @@ from __future__ import annotations
 from typing import Any
 
 from semantic_kernel.connectors.ai.open_ai import AzureTextEmbedding
+from semantic_kernel.functions import kernel_function
 
 from semker_python.vectordb.qdrant_store import QdrantStore
 
-
-async def retrieve_context(
-  query: str,
-  embedding_service: AzureTextEmbedding,
-  store: QdrantStore,
-  top_k: int = 5,
-) -> list[dict[str, Any]]:
-  embeddings = await embedding_service.generate_raw_embeddings([query])
-  query_vector: list[float] = embeddings[0]
-  return store.search(query_vector=query_vector, top_k=top_k)
+TOP_K = 5
 
 
-def build_context_string(hits: list[dict[str, Any]]) -> str:
+class SearchPlugin:
+  """Kernel plugin for semantic search over the dinosaur knowledge base."""
+
+  def __init__(self, store: QdrantStore, embedding_service: AzureTextEmbedding) -> None:
+    self._store = store
+    self._embedding_svc = embedding_service
+
+  @kernel_function(name="retrieve", description="Retrieve relevant dinosaur info for a query")
+  async def retrieve(self, query: str) -> str:
+    embeddings = await self._embedding_svc.generate_raw_embeddings([query])
+    hits = self._store.search(query_vector=embeddings[0], top_k=TOP_K)
+    total = self._store.count()
+    return f"[Database contains {total} dinosaurs total]\n\n{_format_hits(hits)}"
+
+
+def _format_hits(hits: list[dict[str, Any]]) -> str:
   parts: list[str] = []
   for i, hit in enumerate(hits, 1):
     name = hit.get("name", "Unknown")
